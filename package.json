@@ -16,7 +16,7 @@
   "dependencies": {
     "cpu-features": "^0.0.10",
     "unix-dgram": "^2.0.6"
-  },
+  }
  
-  "packageManager": "yarn@4.17.0"
+  
 }
