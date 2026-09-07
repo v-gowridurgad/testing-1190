@@ -1,0 +1,27 @@
+name: repro-node-gyp-cache
+
+on:
+  workflow_dispatch:
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: Show tool versions
+        run: |
+          node --version
+          yarn --version
+
+      - name: Install dependencies
+        run: yarn install --immutable || yarn install
+
+      - name: Re-run install to detect rebuilds
+        run: yarn install --immutable || yarn install
