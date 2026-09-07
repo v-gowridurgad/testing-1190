@@ -27,7 +27,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: yarn install --frozen-lockfile
 
        
   
