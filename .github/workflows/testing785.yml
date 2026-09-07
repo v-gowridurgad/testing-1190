@@ -19,10 +19,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/node-gyp
-            node_modules/cpu-features/build
-            node_modules/unix-dgram/build
-          key: ${{ runner.os }}-node24-yarn-${{ hashFiles('yarn.lock') }}
+            node_modules
+            **/node_modules
+            .yarn/install-state.gz
+          key: nm-${{ runner.os }}-${{ runner.arch }}-node16-${{ hashFiles('**/yarn.lock') }}
 
       - name: Install dependencies
-        run: yarn install --verbose
+        if: steps.nm.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+       
+  
