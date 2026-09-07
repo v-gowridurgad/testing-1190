@@ -23,11 +23,11 @@ jobs:
             node_modules
             **/node_modules
             .yarn/install-state.gz
-          key: nm-${{ runner.os }}-${{ runner.arch }}-node16-${{ hashFiles('**/yarn.lock') }}
+          key: nm-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('**/yarn.lock') }}
 
       - name: Install dependencies
         if: steps.nm.outputs.cache-hit != 'true'
-        run: yarn install --frozen-lockfile
+        run: yarn install 
 
        
   
