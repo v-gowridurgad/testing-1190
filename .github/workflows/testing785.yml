@@ -1,4 +1,4 @@
-name: repro-node-gyp-cache
+name: repro-native-cache
 
 on:
   workflow_dispatch:
@@ -15,12 +15,14 @@ jobs:
           node-version: 24
           cache: yarn
 
-      - name: Show tool versions
-        run: |
-          node --version
-          yarn --version
+      - name: Restore native build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/node-gyp
+            node_modules/cpu-features/build
+            node_modules/unix-dgram/build
+          key: ${{ runner.os }}-node24-yarn-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
-        run: yarn install --immutable || yarn install
-
-     
+        run: yarn install --verbose
