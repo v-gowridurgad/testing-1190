@@ -23,5 +23,4 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable || yarn install
 
-      - name: Re-run install to detect rebuilds
-        run: yarn install --immutable || yarn install
+     
