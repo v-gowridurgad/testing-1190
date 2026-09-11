@@ -12,10 +12,8 @@
   "publishConfig": {
     "access": "public"
   },
-
-  "dependencies": {
-    "cpu-features": "^0.0.10",
-    "unix-dgram": "^2.0.6"
+"volta": {
+    "extends": "./package.json"
   }
  
   
