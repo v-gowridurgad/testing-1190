@@ -1,0 +1,33 @@
+name: Repro Volta two-file cycle
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create mutually recursive manifests
+        run: |
+          cat > a.json <<'JSON'
+          {
+            "volta": {
+              "extends": "./b.json"
+            }
+          }
+          JSON
+
+          cat > b.json <<'JSON'
+          {
+            "volta": {
+              "extends": "./a.json"
+            }
+          }
+          JSON
+
+      - name: Run setup-node against cyclic manifest
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: a.json
