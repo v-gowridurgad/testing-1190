@@ -14,4 +14,4 @@ jobs:
       - name: Run setup-node against cyclic manifest
         uses: v-gowridurgad/setup-node@fix-1628
         with:
-          node-version-file: package.json
+          node-version-file: /tmp/does-not-exist/package.json
