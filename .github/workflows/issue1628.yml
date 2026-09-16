@@ -7,11 +7,11 @@ jobs:
   reproduce:
     runs-on: ubuntu-latest
     steps:
-      - name: Create a symlinked cycle
+      - name: Create a symlinked cycle inside the workspace
         run: |
-          mkdir -p /tmp/real
-          echo '{"volta": {"extends": "./loop/pkg.json"}}' > /tmp/real/pkg.json
-          ln -s /tmp/real /tmp/real/loop
+           mkdir -p "$GITHUB_WORKSPACE/symlink-test/real"
+           echo '{"volta": {"extends": "./loop/pkg.json"}}' > "$GITHUB_WORKSPACE/symlink-test/real/pkg.json"
+           ln -s "$GITHUB_WORKSPACE/symlink-test/real" "$GITHUB_WORKSPACE/symlink-test/real/loop"
       - id: setup
         continue-on-error: true
         uses: v-gowridurgad/setup-node@fix-1628
