@@ -16,4 +16,4 @@ jobs:
         # uses: actions/setup-node@v7
         
         with:
-          node-version-file: a.json
+          node-version-file: mixed.json
