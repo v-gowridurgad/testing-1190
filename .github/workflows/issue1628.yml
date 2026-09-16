@@ -12,6 +12,8 @@ jobs:
      
 
       - name: Run setup-node against cyclic manifest
-        uses: v-gowridurgad/setup-node@fix-1628
+        # uses: v-gowridurgad/setup-node@fix-1628
+        uses: actions/setup-node@v7
+        
         with:
-          node-version-file: mixed.json
+          node-version-file: a.json
