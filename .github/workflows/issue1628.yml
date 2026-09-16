@@ -1,20 +1,37 @@
-name: testing1628
-
-on:
-  workflow_dispatch:
+name: d5-symlink-cycle
+on: workflow_dispatch
 
 jobs:
-  reproduce:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - name: Create a symlinked cycle inside the workspace
+      - uses: actions/checkout@v7
+
+      - name: Create a symlinked directory loop with a volta.extends fixture
         run: |
-           mkdir -p "$GITHUB_WORKSPACE/symlink-test/real"
-           echo '{"volta": {"extends": "./loop/pkg.json"}}' > "$GITHUB_WORKSPACE/symlink-test/real/pkg.json"
-           ln -s "$GITHUB_WORKSPACE/symlink-test/real" "$GITHUB_WORKSPACE/symlink-test/real/loop"
+          set -e
+          rm -rf symlink-test
+          mkdir -p symlink-test/real
+          echo '{"volta": {"extends": "./loop/pkg.json"}}' > symlink-test/real/pkg.json
+          # Relative symlink: real/loop -> . (same "real" directory)
+          # Following extends produces different lexical paths that all
+          # resolve (via realpath) to the same file.
+          ln -s . symlink-test/real/loop
+          echo "--- structure ---"
+          ls -la symlink-test/real
+          echo "--- pkg.json (direct) ---"
+          cat symlink-test/real/pkg.json
+          echo "--- pkg.json (via symlink) ---"
+          cat symlink-test/real/loop/pkg.json
+          echo "--- realpath demonstrates the loop ---"
+          readlink -f symlink-test/real/pkg.json
+          readlink -f symlink-test/real/loop/pkg.json
+
       - id: setup
+        name: Run setup-node against the symlinked-cycle fixture
         continue-on-error: true
         uses: v-gowridurgad/setup-node@fix-1628
         with:
-          node-version-file: /tmp/real/pkg.json
-     
+          node-version-file: symlink-test/real/pkg.json
+
+      
