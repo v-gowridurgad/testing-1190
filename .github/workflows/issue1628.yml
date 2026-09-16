@@ -30,7 +30,9 @@ jobs:
       - id: setup
         name: Run setup-node against the symlinked-cycle fixture
         continue-on-error: true
-        uses: v-gowridurgad/setup-node@fix-1628
+        # uses: v-gowridurgad/setup-node@fix-1628
+        uses: actions/setup-node@v7
+        
         with:
           node-version-file: symlink-test/real/pkg.json
 
