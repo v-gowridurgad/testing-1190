@@ -7,12 +7,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run setup-node 
-       
+      - name: Create a symlinked directory loop with a volta.extends fixture
+        run: |
+          set -e
+          rm -rf symlink-test
+          mkdir -p symlink-test/real
+          echo '{"volta": {"extends": "./loop/pkg.json"}}' > symlink-test/real/pkg.json
+          # Relative symlink: real/loop -> . (same "real" directory)
+          # Following extends produces different lexical paths that all
+          # resolve (via realpath) to the same file.
+          ln -s . symlink-test/real/loop
+          echo "--- structure ---"
+          ls -la symlink-test/real
+          echo "--- pkg.json (direct) ---"
+          cat symlink-test/real/pkg.json
+          echo "--- pkg.json (via symlink) ---"
+          cat symlink-test/real/loop/pkg.json
+          echo "--- realpath demonstrates the loop ---"
+          readlink -f symlink-test/real/pkg.json
+          readlink -f symlink-test/real/loop/pkg.json
+      - id: setup
+        name: Run setup-node against the symlinked-cycle fixture
         uses: v-gowridurgad/setup-node@fix-1628
-      
-        
         with:
-          node-version-file: package.json
-
-      
+          node-version-file: symlink-test/real/pkg.json
