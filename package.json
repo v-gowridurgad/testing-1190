@@ -12,9 +12,7 @@
   "publishConfig": {
     "access": "public"
   },
-"volta": {
-  "extends": "./does-not-exist.json"
-}
- 
- 
+  "volta": {
+    "extends": "./does-not-exist.json"
+  }
 }
