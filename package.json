@@ -13,8 +13,8 @@
     "access": "public"
   },
 "volta": {
-  "extends": "./package.json"
+  "extends": "./does-not-exist.json"
 }
  
-  
+ 
 }
