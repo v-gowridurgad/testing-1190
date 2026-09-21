@@ -13,6 +13,6 @@
     "access": "public"
   },
   "volta": {
-    "extends": "./does-not-exist.json"
+    "node": "24"
   }
 }
