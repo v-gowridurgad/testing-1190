@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: v-gowridurgad/setup-node@fix-1628
         with:
           node-version-file: .mise.toml
       
