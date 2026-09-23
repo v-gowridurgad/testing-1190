@@ -7,5 +7,5 @@ jobs:
       - uses: actions/checkout@v7
       - uses: v-gowridurgad/setup-node@fix-1628
         with:
-          node-version-file: .mise.toml
+          node-version-file: mixed.json
       
