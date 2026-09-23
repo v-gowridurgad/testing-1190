@@ -13,9 +13,8 @@
     "access": "public"
   },
 "volta": {
-  "node": "20.11.1", 
-  "extends": "./mixed.json"
-}
+    "extends": "test.json"
+  }
  
   
 }
