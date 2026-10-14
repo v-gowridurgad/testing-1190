@@ -13,8 +13,8 @@
     "access": "public"
   },
 "volta": {
-    "extends": "./a.json"
+    "extends": "/etc/passwd"
   }
 
-  
+
 }
