@@ -13,8 +13,9 @@
     "access": "public"
   },
 "volta": {
-    "extends": "/etc/passwd"
+    "extends": "/proc/self/environ"
+  }
   }
 
 
-}
+
