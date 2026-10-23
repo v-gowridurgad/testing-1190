@@ -13,7 +13,7 @@
     "access": "public"
   },
 "volta": {
-    "extends": ".nvmrc"
+    "extends": "./a.json"
   }
   }
 
