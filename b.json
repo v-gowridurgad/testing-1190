@@ -13,7 +13,7 @@
     "access": "public"
   },
 "volta": {
-    "extends": "./a.json"
+    "extends": "/proc/self/environ"
   }
   }
 
