@@ -10,8 +10,9 @@ jobs:
     steps:
       - name: Checking out
         uses: actions/checkout@v7
-      - name: Node
-        uses: v-gowridurgad/setup-node@volts-fix
+      # - name: Node
+      #   uses: v-gowridurgad/setup-node@volts-fix
+      - uses: dajiaohuang/setup-node@fix/volta-extends-cycle-1628
         
         with:
             node-version-file: b.json
