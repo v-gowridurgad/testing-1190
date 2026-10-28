@@ -1,27 +1,26 @@
-name: 418-E - Older versions unaffected
+name: 418-F - Real-world usage
 
 on: workflow_dispatch
 
 jobs:
-  regression:
-    strategy:
-      fail-fast: false
-      matrix:
-        pyver: ['3.12.11', '3.13.9', '3.14.8']
+  consumer:
     runs-on: ubuntu-24.04
     steps:
       - uses: v-gowridurgad/setup-python@testing-1376
         with:
-          python-version: ${{ matrix.pyver }}
+          python-version: '3.15.0'
 
-      - name: _decimal still works via bundled libmpdec
+      - name: Decimal-heavy stdlib paths
         run: |
-          python -VVV
-          python -c "import _decimal; print(_decimal.__file__)"
-          python -c "import decimal; print('libmpdec:', decimal.__libmpdec_version__)"
           python -c "
-          from decimal import Decimal, getcontext
-          getcontext().prec = 10000
-          assert len(str(Decimal('9'*5000))) == 5000
-          print('5000-digit OK')
+          import json, decimal
+          from decimal import Decimal
+          d = json.loads('1.0000000000000000000000001', parse_float=Decimal)
+          print('json Decimal:', d, type(d))
+          import csv, io, statistics
+          vals = [Decimal('1.1'), Decimal('2.2'), Decimal('3.3')]
+          print('mean:', statistics.mean(vals))
           "
+
+      - name: CPython's own decimal test suite
+        run: python -m test test_decimal -v 2>&1 | tail -30
