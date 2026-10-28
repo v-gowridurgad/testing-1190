@@ -1,26 +1,38 @@
-name: 418-F - Real-world usage
+name: 418-D - Platform matrix
 
 on: workflow_dispatch
 
 jobs:
-  consumer:
-    runs-on: ubuntu-24.04
+  matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            pyver: '3.15.0'
+          - os: ubuntu-24.04-arm
+            pyver: '3.15.0'
+          - os: ubuntu-22.04
+            pyver: '3.15.0'
+          - os: ubuntu-24.04
+            pyver: '3.15.0t'
+          - os: ubuntu-24.04-arm
+            pyver: '3.15.0t'
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: v-gowridurgad/setup-python@testing-1376
         with:
-          python-version: '3.15.0'
+          python-version: ${{ matrix.pyver }}
 
-      - name: Decimal-heavy stdlib paths
+      - name: Verify
         run: |
+          python -VVV
+          python -c "import _decimal; print(_decimal.__file__)"
+          python -c "import decimal; print('libmpdec:', decimal.__libmpdec_version__)"
+          python -c "import sysconfig; print('GIL disabled:', sysconfig.get_config_var('Py_GIL_DISABLED'))"
           python -c "
-          import json, decimal
-          from decimal import Decimal
-          d = json.loads('1.0000000000000000000000001', parse_float=Decimal)
-          print('json Decimal:', d, type(d))
-          import csv, io, statistics
-          vals = [Decimal('1.1'), Decimal('2.2'), Decimal('3.3')]
-          print('mean:', statistics.mean(vals))
+          from decimal import Decimal, getcontext
+          getcontext().prec = 10000
+          assert len(str(Decimal('9'*5000))) == 5000
+          print('5000-digit OK')
           "
-
-      - name: CPython's own decimal test suite
-        run: python -m test test_decimal -v 2>&1 | tail -30
