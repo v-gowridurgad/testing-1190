@@ -1,15 +1,27 @@
-name: Repro _decimal on Python 3.15.0 (Ubuntu)
+name: 418-A - _decimal is a C extension
 
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
-  repro:
+  verify:
     runs-on: ubuntu-24.04
     steps:
       - uses: v-gowridurgad/setup-python@testing-1376
         with:
-          python-version: "3.15.0 "
+          python-version: '3.15.0'
 
-      - name: Repro
-        run: python -c "import _decimal"
+      - name: _decimal imports and is a compiled .so
+        run: |
+          python -c "import _decimal; print('file:', _decimal.__file__)"
+          python -c "import _decimal, sys; sys.exit(0 if _decimal.__file__.endswith('.so') else 1)"
+
+      - name: decimal uses C impl with libmpdec 4.0.1
+        run: |
+          python -c "
+          import decimal
+          v = getattr(decimal, '__libmpdec_version__', None)
+          assert v, 'pure-python _pydecimal fallback is in use'
+          print('libmpdec:', v)
+          assert v.startswith('4.0.1'), f'unexpected libmpdec version: {v}'
+          print('HAVE_THREADS:', decimal.HAVE_THREADS)
+          "
