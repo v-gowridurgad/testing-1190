@@ -1,36 +1,27 @@
-name: 418-C - Static libmpdec link
+name: 418-E - Older versions unaffected
 
 on: workflow_dispatch
 
 jobs:
-  staticlink:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        pyver: ['3.12.11', '3.13.9', '3.14.8']
     runs-on: ubuntu-24.04
     steps:
       - uses: v-gowridurgad/setup-python@testing-1376
         with:
-          python-version: '3.15.0'
+          python-version: ${{ matrix.pyver }}
 
-      - name: No dynamic libmpdec dependency
+      - name: _decimal still works via bundled libmpdec
         run: |
-          SO=$(python -c "import _decimal; print(_decimal.__file__)")
-          echo "module: $SO"
-          ldd "$SO" || true
-          if ldd "$SO" | grep -qi mpdec; then
-            echo "FAIL: dynamic libmpdec dependency found"
-            exit 1
-          fi
-          echo "OK: statically linked"
-
-      - name: mpd_* symbols stay private
-        run: |
-          SO=$(python -c "import _decimal; print(_decimal.__file__)")
-          if nm -D "$SO" 2>/dev/null | grep -q " T mpd_"; then
-            echo "FAIL: mpd_* exported, -fvisibility=hidden not applied"
-            exit 1
-          fi
-          echo "OK: mpd_* not exported"
-
-      - name: Confirm no system libmpdec exists on this runner
-        run: |
-          dpkg -l | grep -i mpdec || echo "No mpdec package installed - good, proves static link"
-          ldconfig -p | grep -i mpdec || echo "No libmpdec.so on system - module still works"
+          python -VVV
+          python -c "import _decimal; print(_decimal.__file__)"
+          python -c "import decimal; print('libmpdec:', decimal.__libmpdec_version__)"
+          python -c "
+          from decimal import Decimal, getcontext
+          getcontext().prec = 10000
+          assert len(str(Decimal('9'*5000))) == 5000
+          print('5000-digit OK')
+          "
