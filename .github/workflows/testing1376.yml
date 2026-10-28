@@ -1,28 +1,32 @@
-name: 418-A - _decimal is a C extension
+name: 418-B - Oversized decimals
 
 on: workflow_dispatch
 
 jobs:
-  verify:
+  bigdigits:
     runs-on: ubuntu-24.04
     steps:
-      # - uses: v-gowridurgad/setup-python@testing-1376
-      - uses: actions/setup-python@v7
+      - uses: v-gowridurgad/setup-python@testing-1376
         with:
           python-version: '3.15.0'
 
-      - name: _decimal imports and is a compiled .so
-        run: |
-          python -c "import _decimal; print('file:', _decimal.__file__)"
-          python -c "import _decimal, sys; sys.exit(0 if _decimal.__file__.endswith('.so') else 1)"
-
-      - name: decimal uses C impl with libmpdec 4.0.1
+      - name: 5000-digit Decimal round-trips
         run: |
           python -c "
-          import decimal
-          v = getattr(decimal, '__libmpdec_version__', None)
-          assert v, 'pure-python _pydecimal fallback is in use'
-          print('libmpdec:', v)
-          assert v.startswith('4.0.1'), f'unexpected libmpdec version: {v}'
-          print('HAVE_THREADS:', decimal.HAVE_THREADS)
+          from decimal import Decimal, getcontext
+          getcontext().prec = 10000
+          s = str(Decimal('9'*5000))
+          assert len(s) == 5000, len(s)
+          print('5000-digit OK')
+          "
+
+      - name: Heavy arithmetic above the fallback limit
+        run: |
+          python -c "
+          from decimal import Decimal, getcontext
+          getcontext().prec = 12000
+          a = Decimal('9'*6000)
+          b = Decimal('7'*6000)
+          print('product digits:', len(str(a*b)))
+          print('sqrt digits:', len(str(a.sqrt())))
           "
