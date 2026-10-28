@@ -1,35 +1,24 @@
-name: 418-D - Platform matrix
+name: 418-E - Older versions unaffected
 
 on: workflow_dispatch
 
 jobs:
-  matrix:
+  regression:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            pyver: '3.15.0'
-          - os: ubuntu-24.04-arm
-            pyver: '3.15.0'
-          - os: ubuntu-22.04
-            pyver: '3.15.0'
-          - os: ubuntu-24.04
-            pyver: '3.15.0t'
-          - os: ubuntu-24.04-arm
-            pyver: '3.15.0t'
-    runs-on: ${{ matrix.os }}
+        pyver: ['3.12.11', '3.13.9', '3.14.8']
+    runs-on: ubuntu-24.04
     steps:
       - uses: v-gowridurgad/setup-python@testing-1376
         with:
           python-version: ${{ matrix.pyver }}
 
-      - name: Verify
+      - name: _decimal still works via bundled libmpdec
         run: |
           python -VVV
           python -c "import _decimal; print(_decimal.__file__)"
           python -c "import decimal; print('libmpdec:', decimal.__libmpdec_version__)"
-          python -c "import sysconfig; print('GIL disabled:', sysconfig.get_config_var('Py_GIL_DISABLED'))"
           python -c "
           from decimal import Decimal, getcontext
           getcontext().prec = 10000
