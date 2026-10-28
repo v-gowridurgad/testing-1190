@@ -1,33 +1,36 @@
-name: 418-B - Oversized decimals
+name: 418-C - Static libmpdec link
 
 on: workflow_dispatch
 
 jobs:
-  bigdigits:
+  staticlink:
     runs-on: ubuntu-24.04
     steps:
-      # - uses: v-gowridurgad/setup-python@testing-1376
-      - uses: actions/setup-python@v7
+      - uses: v-gowridurgad/setup-python@testing-1376
         with:
           python-version: '3.15.0'
 
-      - name: 5000-digit Decimal round-trips
+      - name: No dynamic libmpdec dependency
         run: |
-          python -c "
-          from decimal import Decimal, getcontext
-          getcontext().prec = 10000
-          s = str(Decimal('9'*5000))
-          assert len(s) == 5000, len(s)
-          print('5000-digit OK')
-          "
+          SO=$(python -c "import _decimal; print(_decimal.__file__)")
+          echo "module: $SO"
+          ldd "$SO" || true
+          if ldd "$SO" | grep -qi mpdec; then
+            echo "FAIL: dynamic libmpdec dependency found"
+            exit 1
+          fi
+          echo "OK: statically linked"
 
-      - name: Heavy arithmetic above the fallback limit
+      - name: mpd_* symbols stay private
         run: |
-          python -c "
-          from decimal import Decimal, getcontext
-          getcontext().prec = 12000
-          a = Decimal('9'*6000)
-          b = Decimal('7'*6000)
-          print('product digits:', len(str(a*b)))
-          print('sqrt digits:', len(str(a.sqrt())))
-          "
+          SO=$(python -c "import _decimal; print(_decimal.__file__)")
+          if nm -D "$SO" 2>/dev/null | grep -q " T mpd_"; then
+            echo "FAIL: mpd_* exported, -fvisibility=hidden not applied"
+            exit 1
+          fi
+          echo "OK: mpd_* not exported"
+
+      - name: Confirm no system libmpdec exists on this runner
+        run: |
+          dpkg -l | grep -i mpdec || echo "No mpdec package installed - good, proves static link"
+          ldconfig -p | grep -i mpdec || echo "No libmpdec.so on system - module still works"
