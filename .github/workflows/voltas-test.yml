@@ -11,8 +11,7 @@ jobs:
       - name: Checking out
         uses: actions/checkout@v7
       - name: Node
-        uses: v-gowridurgad/setup-node@volts-fix
-      # - uses: dajiaohuang/setup-node@fix/volta-extends-cycle-1628
+        uses: v-gowridurgad/setup-node@voltas-final
         
         with:
             node-version-file: b.json
