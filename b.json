@@ -13,7 +13,7 @@
     "access": "public"
   },
 "volta": {
-    "extends": "/proc/self/environ"
+    "extends": ".nvmrc"
   }
   }
 
