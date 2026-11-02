@@ -12,8 +12,9 @@
   "publishConfig": {
     "access": "public"
   },
-"volta": {
-    "extends": ".nvmrc"
+{
+  "volta":
+  {"node":true}} 
   }
   }
 
