@@ -13,7 +13,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "engines": {
-    "node": true
+  "volta": {
+    "extends": true
   }
 }
