@@ -1,3 +1,4 @@
+
 {
   "name": "testing1190",
   "version": "1.0.7",
@@ -12,9 +13,7 @@
   "publishConfig": {
     "access": "public"
   },
- {"engines":{"node": 22}} 
+  "engines": {
+    "node": "true"
   }
-  
-
-
-
+}
