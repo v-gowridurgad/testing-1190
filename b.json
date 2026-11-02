@@ -12,7 +12,7 @@
   "publishConfig": {
     "access": "public"
   },
- {"engines":{"node":true}} 
+ {"engines":{"node": 22}} 
   }
   
 
