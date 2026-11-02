@@ -12,10 +12,7 @@
   "publishConfig": {
     "access": "public"
   },
-{
-  "volta":
-  {"node":true}
-} 
+ {"engines":{"node":true}} 
   }
   
 
