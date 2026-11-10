@@ -22,10 +22,10 @@ jobs:
           echo "index.json raw head    : $(curl -fsSL https://nodejs.org/dist/index.json | jq -r '.[0].version')"
 
       - name: nvm commands
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         shell: bash
         run: |
-          export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
+          . "$NVM_DIR/nvm.sh"
           echo "nvm version-remote node    : $(nvm version-remote node)"
           echo "nvm version-remote 'lts/*' : $(nvm version-remote 'lts/*')"
 
