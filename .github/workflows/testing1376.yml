@@ -1,27 +1,42 @@
-name: 418-E - Older versions unaffected
-
-on: workflow_dispatch
+name: testing-1376
+on:
+  workflow_dispatch:
 
 jobs:
-  regression:
-    strategy:
-      fail-fast: false
-      matrix:
-        pyver: ['3.12.11', '3.13.9', '3.14.8']
+  repro:
     runs-on: ubuntu-24.04
     steps:
-      - uses: v-gowridurgad/setup-python@testing-1376
+      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.pyver }}
+          python-version: "3.15.0"
 
-      - name: _decimal still works via bundled libmpdec
+      - name: Repro
+        continue-on-error: true
+        run: python -c "import _decimal"
+
+      - name: Workaround - build 3.15 with system libmpdec
         run: |
-          python -VVV
-          python -c "import _decimal; print(_decimal.__file__)"
-          python -c "import decimal; print('libmpdec:', decimal.__libmpdec_version__)"
-          python -c "
-          from decimal import Decimal, getcontext
-          getcontext().prec = 10000
-          assert len(str(Decimal('9'*5000))) == 5000
-          print('5000-digit OK')
-          "
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev libffi-dev
+
+          curl -sSLO https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-4.0.1.tar.gz
+          echo "96d33abb4bb0070c7be0fed4246cd38416188325f820468214471938545b1ac8  mpdecimal-4.0.1.tar.gz" | sha256sum -c -
+          tar xf mpdecimal-4.0.1.tar.gz
+          cd mpdecimal-4.0.1
+          ./configure --prefix="$HOME/mpdec" --disable-cxx --disable-shared CFLAGS='-fPIC -O3 -fvisibility=hidden'
+          make -j"$(nproc)" && make install
+          cd ..
+
+          curl -sSLO https://www.python.org/ftp/python/3.15.0/Python-3.15.0.tgz
+          tar xf Python-3.15.0.tgz
+          cd Python-3.15.0
+          ./configure --prefix="$HOME/py315" --with-system-libmpdec \
+            LIBMPDEC_CFLAGS="-I$HOME/mpdec/include" \
+            LIBMPDEC_LIBS="$HOME/mpdec/lib/libmpdec.a"
+          make -j"$(nproc)" && make install
+
+          echo "$HOME/py315/bin" >> $GITHUB_PATH
+
+      - name: Verify
+        run: python3 -c "import _decimal; print('ok:', _decimal.__file__)"
