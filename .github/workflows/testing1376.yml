@@ -1,59 +1,79 @@
+name: Python decimal workaround
+on: workflow_dispatch
 
-name: Repro _decimal on Python 3.15.0 (Ubuntu)
-
-on:
-  workflow_dispatch:
+permissions:
+  contents: read
 
 jobs:
-  repro:
-    name: Repro - toolcache 3.15.0 has no _decimal
+  test:
     runs-on: ubuntu-24.04
-
     steps:
-      # Step 1: Set up Python 3.15.0
-      - name: Set up Python 3.15.0
-        uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.0.0
         with:
-          python-version: "3.15.0"
+          python-version:  '3.16'
+          allow-prereleases: true
 
-      # Step 2: Install build dependencies
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential git pkg-config libssl-dev zlib1g-dev \
-            libbz2-dev libreadline-dev libsqlite3-dev libffi-dev \
-            liblzma-dev libncurses-dev libgdbm-dev libgdbm-compat-dev \
-            uuid-dev tk-dev
+            build-essential git curl ca-certificates pkg-config \
+            libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
+            libsqlite3-dev libffi-dev liblzma-dev libzstd-dev \
+            libncurses-dev libgdbm-dev libgdbm-compat-dev uuid-dev tk-dev
 
-      # Step 3: Build Python 3.15 with C decimal support
-      - name: Build Python 3.15 with C decimal support
+      - name: Rebuild selected Python with libmpdec
         shell: bash
         run: |
           set -euo pipefail
 
-          git clone --depth 1 --branch v3.15.0 \
-            https://github.com/python/cpython.git \
-            "$RUNNER_TEMP/cpython-315"
+          version="$(python -c 'import platform; print(platform.python_version())')"
+          work="$(mktemp -d "$RUNNER_TEMP/python-build.XXXXXX")"
+          mpdec="$work/mpdecimal-install"
+          install="$work/python-install"
 
-          cd "$RUNNER_TEMP/cpython-315"
+          curl --fail --location --retry 3 \
+            --connect-timeout 20 --max-time 180 \
+            https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-4.0.1.tar.gz \
+            --output "$work/mpdecimal.tar.gz"
+
+          echo "96d33abb4bb0070c7be0fed4246cd38416188325f820468214471938545b1ac8  $work/mpdecimal.tar.gz" \
+            | sha256sum --check --strict
+
+          tar -xzf "$work/mpdecimal.tar.gz" -C "$work"
+          cd "$work/mpdecimal-4.0.1"
 
           ./configure \
-            --prefix="$RUNNER_TEMP/python-315" \
-            --without-system-libmpdec \
-            --with-ensurepip=install
-
+            --prefix="$mpdec" --libdir="$mpdec/lib" \
+            --disable-cxx --disable-shared \
+            CFLAGS="-fPIC -O3 -fvisibility=hidden"
           make -j2
           make install
 
-          "$RUNNER_TEMP/python-315/bin/python3.15" -c \
-            "import _decimal; print(_decimal.__libmpdec_version__)"
+          git clone --depth 1 --branch "v$version" \
+            https://github.com/python/cpython.git "$work/cpython"
+          cd "$work/cpython"
 
-          echo "$RUNNER_TEMP/python-315/bin" >> "$GITHUB_PATH"
+          ./configure \
+            --prefix="$install" \
+            --with-ensurepip=install \
+            LIBMPDEC_CFLAGS="-I$mpdec/include" \
+            LIBMPDEC_LIBS="$mpdec/lib/libmpdec.a -lm"
+          make -j2
+          make install
 
-      # Step 4: Run with the rebuilt Python
-      - name: Run with the rebuilt Python
-        shell: bash
+          "$install/bin/python3" - <<'PY'
+          import _decimal
+          import decimal
+          assert decimal.Decimal is _decimal.Decimal
+          assert decimal.Decimal("9" * 5000).is_finite()
+          PY
+
+          echo "$install/bin" >> "$GITHUB_PATH"
+
+      - name: Use rebuilt Python
         run: |
-          python3.15 -m pip --version
-          python3.15 -c "import _decimal"
+          python3 --version
+          python3 -c "import _decimal"
+          python3 -m pip --version
+          # Install project dependencies and run tests here.
