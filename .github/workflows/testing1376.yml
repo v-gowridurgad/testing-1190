@@ -1,3 +1,4 @@
+
 name: Repro _decimal on Python 3.15.0 (Ubuntu)
 
 on:
@@ -7,82 +8,52 @@ jobs:
   repro:
     name: Repro - toolcache 3.15.0 has no _decimal
     runs-on: ubuntu-24.04
+
     steps:
-      - uses: actions/setup-python@v7
+      # Step 1: Set up Python 3.15.0
+      - name: Set up Python 3.15.0
+        uses: actions/setup-python@v7
         with:
           python-version: "3.15.0"
 
-      - name: Which python
+      # Step 2: Install build dependencies
+      - name: Install build dependencies
         run: |
-          which -a python3 || true
-          python3 -VV
-
-      - name: Repro (expected to fail)
-        continue-on-error: true
-        run: python3 -c "import _decimal; print('ok:', _decimal.__file__)"
-
-  workaround-pin-314:
-    name: Workaround 1 - pin to 3.14
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-
-      - name: Verify
-        run: |
-          python3 -VV
-          python3 -c "import _decimal; print('ok:', _decimal.__file__)"
-
-  workaround-build-from-source:
-    name: Workaround 2 - build 3.15 against system libmpdec
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Build mpdecimal
-        run: |
-          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y build-essential libssl-dev zlib1g-dev libffi-dev pkg-config
+          sudo apt-get install -y \
+            build-essential git pkg-config libssl-dev zlib1g-dev \
+            libbz2-dev libreadline-dev libsqlite3-dev libffi-dev \
+            liblzma-dev libncurses-dev libgdbm-dev libgdbm-compat-dev \
+            uuid-dev tk-dev
 
-          curl -sSLO https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-4.0.1.tar.gz
-          echo "96d33abb4bb0070c7be0fed4246cd38416188325f820468214471938545b1ac8  mpdecimal-4.0.1.tar.gz" | sha256sum -c -
-          tar xf mpdecimal-4.0.1.tar.gz
-          cd mpdecimal-4.0.1
-          ./configure --prefix="$HOME/mpdec" --disable-cxx --disable-shared CFLAGS='-fPIC -O3 -fvisibility=hidden'
-          make -j"$(nproc)"
+      # Step 3: Build Python 3.15 with C decimal support
+      - name: Build Python 3.15 with C decimal support
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git clone --depth 1 --branch v3.15.0 \
+            https://github.com/python/cpython.git \
+            "$RUNNER_TEMP/cpython-315"
+
+          cd "$RUNNER_TEMP/cpython-315"
+
+          ./configure \
+            --prefix="$RUNNER_TEMP/python-315" \
+            --without-system-libmpdec \
+            --with-ensurepip=install
+
+          make -j2
           make install
 
-          test -f "$HOME/mpdec/lib/libmpdec.a"
-          ls -l "$HOME/mpdec/lib" "$HOME/mpdec/include"
+          "$RUNNER_TEMP/python-315/bin/python3.15" -c \
+            "import _decimal; print(_decimal.__libmpdec_version__)"
 
-      - name: Build CPython 3.15.0
+          echo "$RUNNER_TEMP/python-315/bin" >> "$GITHUB_PATH"
+
+      # Step 4: Run with the rebuilt Python
+      - name: Run with the rebuilt Python
+        shell: bash
         run: |
-          set -euxo pipefail
-          curl -sSLO https://www.python.org/ftp/python/3.15.0/Python-3.15.0.tgz
-          tar xf Python-3.15.0.tgz
-          cd Python-3.15.0
-
-          ./configure --prefix="$HOME/py315" \
-            --with-system-libmpdec \
-            LIBMPDEC_CFLAGS="-I$HOME/mpdec/include" \
-            LIBMPDEC_LIBS="-L$HOME/mpdec/lib -lmpdec" \
-            2>&1 | tee configure.log
-
-          # configure disables _decimal silently if the link test fails - fail loudly instead
-          if grep -qE "_decimal.*(missing|disabled)" configure.log; then
-            echo "::error::configure did not enable _decimal"
-            grep -iE "mpdec|_decimal" configure.log || true
-            exit 1
-          fi
-
-          make -j"$(nproc)" 2>&1 | tee make.log
-          make install
-
-          echo "--- modules summary ---"
-          grep -iE "necessary bits|could not be found|_decimal" make.log || true
-
-      - name: Verify (absolute path, not PATH)
-        run: |
-          "$HOME/py315/bin/python3" -VV
-          "$HOME/py315/bin/python3" -c "import _decimal; print('ok:', _decimal.__file__)"
-          "$HOME/py315/bin/python3" -c "import decimal; print(decimal.Decimal(1)/decimal.Decimal(7))"
+          python3.15 -m pip --version
+          python3.15 -c "import _decimal"
