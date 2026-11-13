@@ -1,10 +1,10 @@
 name: testing-1660
 
-on: workflow_dispatch
+on:
+  workflow_dispatch
 
 jobs:
-  compare:
-    name: ${{ matrix.node-version }} / ${{ matrix.os }}
+  build:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -13,28 +13,8 @@ jobs:
         node-version: [node, latest, current, lts/*, 24.8.0, 26]
     steps:
       - uses: actions/checkout@v7
-
-      - name: Manual commands
-        shell: bash
-        run: |
-          echo "--- manual ---"
-          echo "nodejs.org dist/latest : $(curl -fsSL https://nodejs.org/dist/latest/SHASUMS256.txt | grep -o 'node-v[0-9.]*' | head -1 | sed 's/node-//')"
-          echo "index.json raw head    : $(curl -fsSL https://nodejs.org/dist/index.json | jq -r '.[0].version')"
-
-      - name: nvm commands
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          . "$NVM_DIR/nvm.sh"
-          echo "nvm version-remote node    : $(nvm version-remote node)"
-          echo "nvm version-remote 'lts/*' : $(nvm version-remote 'lts/*')"
-
-      - uses: v-gowridurgad/setup-node@fix-1660
+      - uses: v-gowridurgad/setup-node@exclude-prereleases
+      # - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
-
-      - name: Installed version
-        shell: bash
-        run: |
-          echo "--- setup-node ---"
-          echo "node --version : $(node --version)"
+      - run: node --version
