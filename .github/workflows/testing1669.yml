@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup node (mirror + token, no mirror-token)
-        uses: ./
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           mirror: 'https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/'
