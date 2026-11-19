@@ -1,0 +1,19 @@
+name: mirror-auth-behavior
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+    
+  mirror-no-mirror-token:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node (mirror + token, no mirror-token)
+        uses: ./
+        with:
+          node-version: '20'
+          mirror: 'https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/'
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: node -v
