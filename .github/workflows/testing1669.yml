@@ -14,6 +14,6 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '11.15.0'
-          mirror: 'https://mirrors.aliyun.com/nodejs-release/'
+          mirror: 'https://nodejs.org'
           token: ${{ secrets.GITHUB_TOKEN }}
       - run: node -v
