@@ -1,4 +1,4 @@
-name: mirror-auth-behavior
+name: mirror-auth-behavior-single
 
 on:
   workflow_dispatch:
@@ -7,17 +7,14 @@ permissions:
   contents: read
 
 jobs:
-  compare:
-    name: build
+  repro:
     runs-on: ubuntu-latest
-  
-
     defaults:
       run:
         shell: bash
 
     steps:
-      - name: Start strict local mirror (requires mirror token)
+      - name: Start local mirror (auth optional, logs token kind)
         id: mirror
         run: |
           set -euo pipefail
@@ -48,10 +45,7 @@ jobs:
 
                   print(f"MIRROR_REQ token={token_kind} path={self.path}", flush=True)
 
-                  if not hmac.compare_digest(supplied, expected):
-                      self.send_error(401, "Invalid mirror token")
-                      return
-
+                  # auth optional
                   if not self.path.startswith("/dist/"):
                       self.send_error(404)
                       return
@@ -69,38 +63,43 @@ jobs:
                       self.send_response(200)
                       self.end_headers()
                       shutil.copyfileobj(upstream, self.wfile)
+
           ThreadingHTTPServer(("127.0.0.1", 8765), Mirror).serve_forever()
           PY
 
           python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
 
-      - name: Isolate cache + clear log
+          curl --fail --silent --show-error \
+            --retry 10 --retry-connrefused --retry-delay 1 \
+            http://127.0.0.1:8765/dist/index.json \
+            --output /dev/null
+
+      - name: Isolate tool cache and clear mirror log
         run: |
           set -euo pipefail
-          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}" >> "$GITHUB_ENV"
-          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
-          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
+          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           : > "$RUNNER_TEMP/node-mirror.log"
 
-      - name: Trigger manifest path with empty mirror-token
-        id: setup_empty
+      - name: Setup Node via mirror (no mirror-token)
+        id: setup
         continue-on-error: true
         uses: actions/setup-node@v6
         with:
-          node-version: lts/jod
+          node-version: '11.15.0'
           check-latest: true
           token: ${{ github.token }}
           mirror: http://127.0.0.1:8765
           mirror-token: ''
           package-manager-cache: false
 
-      - name: Show evidence
+      - name: Show mirror auth evidence
         if: always()
         run: |
           set -euo pipefail
-          echo "variant=${{ matrix.variant }}"
-          echo "outcome=${{ steps.setup_empty.outcome }}"
+          echo "setup outcome=${{ steps.setup.outcome }}"
           echo "---- mirror requests ----"
           grep -a '^MIRROR_REQ ' "$RUNNER_TEMP/node-mirror.log" || true
           echo "---- token counts ----"
