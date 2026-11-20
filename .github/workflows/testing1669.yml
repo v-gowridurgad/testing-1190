@@ -1,4 +1,4 @@
-name: Compare mirror credentials (v7)
+name: Compare mirror credentials (pr-1669)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  v7:
+  pr-1669:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,10 +63,10 @@ jobs:
           STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8765/dist/index.json)"
           test "$STATUS" = 401
 
-      - name: Test GitHub authentication with v7
-        id: github-v7
+      - name: Test GitHub authentication with PR branch
+        id: github-pr
         continue-on-error: true
-        uses: actions/setup-node@v7
+        uses: EnesKartal/setup-node@fix/mirror-token-github-auth
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/github-path-cache
         with:
@@ -77,16 +77,16 @@ jobs:
           mirror-token: ${{ steps.mirror.outputs.authorization }}
           package-manager-cache: false
 
-      - name: Assert expected GitHub result (v7 should fail)
+      - name: Assert expected GitHub result (PR should succeed)
         env:
-          ACTUAL: ${{ steps.github-v7.outcome }}
+          ACTUAL: ${{ steps.github-pr.outcome }}
         run: |
           set -euo pipefail
-          echo "GitHub path: expected=failure actual=$ACTUAL"
-          test "$ACTUAL" = "failure"
+          echo "GitHub path: expected=success actual=$ACTUAL"
+          test "$ACTUAL" = "success"
 
-      - name: Test authenticated mirror fallback with v7
-        uses: actions/setup-node@v7
+      - name: Test authenticated mirror fallback with PR branch
+        uses: EnesKartal/setup-node@fix/mirror-token-github-auth
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/mirror-path-cache
         with:
