@@ -24,6 +24,12 @@ jobs:
         shell: bash
 
     steps:
+      - name: Isolate and clear tool-cache roots for this run
+        run: |
+          set -euo pipefail
+          rm -rf "${RUNNER_TEMP}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-github"
+          rm -rf "${RUNNER_TEMP}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-mirror"
+
       - name: Start temporary authenticated mirror
         id: mirror
         run: |
@@ -66,16 +72,16 @@ jobs:
                       print("MIRROR_DOWNLOAD_OK", flush=True)
           ThreadingHTTPServer(("127.0.0.1", 8765), Mirror).serve_forever()
           PY
-          python3 -u "$RUNNER_TEMP/node-mirror.py" \
-            > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
+          python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
+
           curl --fail --silent --show-error \
             --retry 10 --retry-connrefused --retry-delay 1 \
             -H "Authorization: $MIRROR_AUTH" \
             http://127.0.0.1:8765/dist/index.json \
             --output /dev/null
-          STATUS="$(curl --silent --show-error --output /dev/null \
-            --write-out '%{http_code}' \
+
+          STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:8765/dist/index.json)"
           test "$STATUS" = 401
 
@@ -86,7 +92,7 @@ jobs:
         continue-on-error: true
         uses: actions/setup-node@v7
         env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/github-path-cache
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-github
         with:
           node-version: lts/jod
           check-latest: true
@@ -101,7 +107,7 @@ jobs:
         continue-on-error: true
         uses: EnesKartal/setup-node@fix/mirror-token-github-auth
         env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/github-path-cache
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-github
         with:
           node-version: lts/jod
           check-latest: true
@@ -118,7 +124,7 @@ jobs:
           set -euo pipefail
           echo "GitHub path: expected=$EXPECTED actual=$ACTUAL"
           test "$ACTUAL" = "$EXPECTED"
-          # A successful GitHub-path test must not be a mirror fallback.
+
           if grep -q '^MIRROR_DOWNLOAD_OK$' "$RUNNER_TEMP/node-mirror.log"; then
             echo "::error::Unexpected mirror fallback during GitHub-path test"
             exit 1
@@ -129,7 +135,7 @@ jobs:
         if: matrix.variant == 'v7'
         uses: actions/setup-node@v7
         env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/mirror-path-cache
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-mirror
         with:
           node-version: '11.15.0'
           token: ${{ github.token }}
@@ -141,7 +147,7 @@ jobs:
         if: matrix.variant == 'pr-1669'
         uses: EnesKartal/setup-node@fix/mirror-token-github-auth
         env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/mirror-path-cache
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-mirror
         with:
           node-version: '11.15.0'
           token: ${{ github.token }}
