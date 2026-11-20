@@ -1,4 +1,4 @@
-name: Compare mirror credentials (v6)
+name: Compare mirror credentials (pr-1669)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  v6:
+  pr-1669:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,22 +39,17 @@ jobs:
                   if not hmac.compare_digest(supplied, os.environ["MIRROR_AUTH"]):
                       self.send_error(401, "Invalid mirror token")
                       return
-
                   if not self.path.startswith("/dist/"):
                       self.send_error(404)
                       return
-
                   try:
-                      upstream = urllib.request.urlopen(
-                          "https://nodejs.org" + self.path, timeout=120
-                      )
+                      upstream = urllib.request.urlopen("https://nodejs.org" + self.path, timeout=120)
                   except urllib.error.HTTPError as error:
                       self.send_error(error.code, "Upstream HTTP error")
                       return
                   except urllib.error.URLError:
                       self.send_error(502, "Cannot reach upstream")
                       return
-
                   with upstream:
                       self.send_response(200)
                       self.end_headers()
@@ -69,21 +64,17 @@ jobs:
           python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
 
-          curl --fail --silent --show-error \
-            --retry 10 --retry-connrefused --retry-delay 1 \
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 \
             -H "Authorization: $MIRROR_AUTH" \
-            http://127.0.0.1:8765/dist/index.json \
-            --output /dev/null
+            http://127.0.0.1:8765/dist/index.json --output /dev/null
 
-          STATUS="$(curl --silent --show-error --output /dev/null \
-            --write-out '%{http_code}' \
-            http://127.0.0.1:8765/dist/index.json)"
+          STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8765/dist/index.json)"
           test "$STATUS" = 401
 
-      - name: Test GitHub authentication with v6 (mirror-token empty)
-        id: github-v6
+      - name: Test GitHub authentication with PR branch
+        id: github-pr
         continue-on-error: true
-        uses: actions/setup-node@v6
+        uses: EnesKartal/setup-node@fix/mirror-token-github-auth
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/github-path-cache
         with:
@@ -94,42 +85,30 @@ jobs:
           mirror-token: ''
           package-manager-cache: false
 
-      - name: Record GitHub-path outcome (non-deterministic repro)
+      - name: Assert expected GitHub result (PR should succeed)
         env:
-          ACTUAL: ${{ steps.github-v6.outcome }}
+          ACTUAL: ${{ steps.github-pr.outcome }}
         run: |
           set -euo pipefail
-          echo "GitHub path outcome (v6): $ACTUAL"
-          echo "Note: failure can be non-deterministic (rate-limit dependent)."
+          echo "GitHub path: expected=success actual=$ACTUAL"
+          test "$ACTUAL" = "success"
 
-      - name: Check for empty Authorization header in mirror log
-        if: always()
+      - name: Verify header behavior in mirror logs
         run: |
           set -euo pipefail
-          echo "---- Looking for empty auth header ----"
-          if grep -E "AUTH_HEADER=''|AUTH_HEADER=\"\"" "$RUNNER_TEMP/node-mirror.log"; then
-            echo "Observed empty Authorization header in request path."
-          else
-            echo "No empty Authorization header observed in this run."
+          LOG="$RUNNER_TEMP/node-mirror.log"
+
+          echo "Checking that authenticated mirror requests were made..."
+          grep -q "AUTH_HEADER='Bearer " "$LOG"
+
+          echo "Checking that fallback archive request used auth..."
+          grep -q "AUTH_HEADER='Bearer .*' PATH=/dist/v11.15.0/node-v11.15.0-linux-x64.tar.gz" "$LOG"
+
+          echo "Checking no empty auth header was used on mirror requests..."
+          if grep -q "AUTH_HEADER='' PATH=/dist/" "$LOG"; then
+            echo "::error::Found empty Authorization header on mirror /dist request"
+            exit 1
           fi
-
-      - name: Test authenticated mirror fallback with v6
-        uses: actions/setup-node@v6
-        env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/mirror-path-cache
-        with:
-          node-version: '11.15.0'
-          token: ${{ github.token }}
-          mirror: http://127.0.0.1:8765
-          mirror-token: ${{ steps.mirror.outputs.authorization }}
-          package-manager-cache: false
-
-      - name: Verify mirror served archive
-        run: |
-          set -euo pipefail
-          grep -q '^MIRROR_DOWNLOAD_OK$' "$RUNNER_TEMP/node-mirror.log"
-          test "$(node --version)" = v11.15.0
-          echo "Authenticated mirror download passed."
 
       - name: Show mirror request log
         if: always()
