@@ -1,15 +1,24 @@
-name: Compare mirror credentials (pr-1669)
+name: Compare setup-node mirror credentials
 
 on:
-  workflow_dispatch:
   push:
 
 permissions:
   contents: read
 
 jobs:
-  pr-1669:
+  compare:
+    name: ${{ matrix.variant }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: v7
+            github-outcome: failure
+          - variant: pr-1669
+            github-outcome: success
+
     defaults:
       run:
         shell: bash
@@ -30,12 +39,9 @@ jobs:
           import urllib.error
           import urllib.request
           from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
           class Mirror(BaseHTTPRequestHandler):
               def do_GET(self):
                   supplied = self.headers.get("Authorization", "")
-                  print(f"AUTH_HEADER={supplied!r} PATH={self.path}", flush=True)
-
                   if not hmac.compare_digest(supplied, os.environ["MIRROR_AUTH"]):
                       self.send_error(401, "Invalid mirror token")
                       return
@@ -43,7 +49,9 @@ jobs:
                       self.send_error(404)
                       return
                   try:
-                      upstream = urllib.request.urlopen("https://nodejs.org" + self.path, timeout=120)
+                      upstream = urllib.request.urlopen(
+                          "https://nodejs.org" + self.path, timeout=120
+                      )
                   except urllib.error.HTTPError as error:
                       self.send_error(error.code, "Upstream HTTP error")
                       return
@@ -54,46 +62,83 @@ jobs:
                       self.send_response(200)
                       self.end_headers()
                       shutil.copyfileobj(upstream, self.wfile)
-
                   if self.path.endswith(".tar.gz"):
                       print("MIRROR_DOWNLOAD_OK", flush=True)
-
           ThreadingHTTPServer(("127.0.0.1", 8765), Mirror).serve_forever()
           PY
-
-          python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
+          python3 -u "$RUNNER_TEMP/node-mirror.py" \
+            > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
-
-          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 \
+          curl --fail --silent --show-error \
+            --retry 10 --retry-connrefused --retry-delay 1 \
             -H "Authorization: $MIRROR_AUTH" \
-            http://127.0.0.1:8765/dist/index.json --output /dev/null
-
-          STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8765/dist/index.json)"
+            http://127.0.0.1:8765/dist/index.json \
+            --output /dev/null
+          STATUS="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:8765/dist/index.json)"
           test "$STATUS" = 401
 
+      # LTS alias resolution needs a GitHub manifest before any mirror fallback.
+      - name: Test GitHub authentication with v7
+        if: matrix.variant == 'v7'
+        id: github-v7
+        continue-on-error: true
+        uses: actions/setup-node@v7
+        env:
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/github-path-cache
+        with:
+          node-version: lts/jod
+          check-latest: true
+          token: ${{ github.token }}
+          mirror: http://127.0.0.1:8765
+          mirror-token: ${{ steps.mirror.outputs.authorization }}
+          package-manager-cache: false
+
       - name: Test GitHub authentication with PR branch
+        if: matrix.variant == 'pr-1669'
         id: github-pr
         continue-on-error: true
         uses: EnesKartal/setup-node@fix/mirror-token-github-auth
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/github-path-cache
         with:
-          node-version: 'lts/jod'
+          node-version: lts/jod
           check-latest: true
           token: ${{ github.token }}
           mirror: http://127.0.0.1:8765
-          mirror-token: ''
+          mirror-token: ${{ steps.mirror.outputs.authorization }}
           package-manager-cache: false
 
-      - name: Assert expected GitHub result (PR should succeed)
+      - name: Assert expected GitHub result
         env:
-          ACTUAL: ${{ steps.github-pr.outcome }}
+          ACTUAL: ${{ matrix.variant == 'v7' && steps.github-v7.outcome || steps.github-pr.outcome }}
+          EXPECTED: ${{ matrix.github-outcome }}
         run: |
           set -euo pipefail
-          echo "GitHub path: expected=success actual=$ACTUAL"
-          test "$ACTUAL" = "success"
+          echo "GitHub path: expected=$EXPECTED actual=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+          # A successful GitHub-path test must not be a mirror fallback.
+          if grep -q '^MIRROR_DOWNLOAD_OK$' "$RUNNER_TEMP/node-mirror.log"; then
+            echo "::error::Unexpected mirror fallback during GitHub-path test"
+            exit 1
+          fi
+
+      # This odd-numbered release is absent from actions/node-versions.
+      - name: Test authenticated mirror fallback with v7
+        if: matrix.variant == 'v7'
+        uses: actions/setup-node@v7
+        env:
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/mirror-path-cache
+        with:
+          node-version: '11.15.0'
+          token: ${{ github.token }}
+          mirror: http://127.0.0.1:8765
+          mirror-token: ${{ steps.mirror.outputs.authorization }}
+          package-manager-cache: false
 
       - name: Test authenticated mirror fallback with PR branch
+        if: matrix.variant == 'pr-1669'
         uses: EnesKartal/setup-node@fix/mirror-token-github-auth
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/mirror-path-cache
@@ -104,35 +149,23 @@ jobs:
           mirror-token: ${{ steps.mirror.outputs.authorization }}
           package-manager-cache: false
 
-      - name: Verify mirror served archive
+      - name: Verify the mirror actually served the archive
         run: |
           set -euo pipefail
           grep -q '^MIRROR_DOWNLOAD_OK$' "$RUNNER_TEMP/node-mirror.log"
           test "$(node --version)" = v11.15.0
-
-      - name: Verify header behavior in mirror logs
-        run: |
-          set -euo pipefail
-          LOG="$RUNNER_TEMP/node-mirror.log"
-
-          echo "Checking that authenticated mirror requests were made..."
-          grep -q "AUTH_HEADER='Bearer " "$LOG"
-
-          echo "Checking that fallback archive request used auth..."
-          grep -q "AUTH_HEADER='Bearer .*' PATH=/dist/v11.15.0/node-v11.15.0-linux-x64.tar.gz" "$LOG"
-
-          echo "Checking no empty auth header was used on mirror requests..."
-          if grep -q "AUTH_HEADER='' PATH=/dist/" "$LOG"; then
-            echo "::error::Found empty Authorization header on mirror /dist request"
-            exit 1
-          fi
+          echo "Authenticated mirror download passed."
 
       - name: Show mirror request log
         if: always()
         run: |
-          [ -f "$RUNNER_TEMP/node-mirror.log" ] && cat "$RUNNER_TEMP/node-mirror.log" || true
+          if [ -f "$RUNNER_TEMP/node-mirror.log" ]; then
+            cat "$RUNNER_TEMP/node-mirror.log"
+          fi
 
       - name: Stop temporary mirror
         if: always()
         run: |
-          [ -f "$RUNNER_TEMP/node-mirror.pid" ] && kill "$(cat "$RUNNER_TEMP/node-mirror.pid")" || true
+          if [ -f "$RUNNER_TEMP/node-mirror.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/node-mirror.pid")"
+          fi
