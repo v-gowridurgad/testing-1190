@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  v7:
+  v6:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,10 +62,10 @@ jobs:
             http://127.0.0.1:8765/dist/index.json --output /dev/null
           STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8765/dist/index.json)"
           test "$STATUS" = 401
-      - name: Test GitHub authentication with v7
-        id: github-v7
+      - name: Test GitHub authentication with v6
+        id: github-v6
         continue-on-error: true
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v6
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/github-path-cache
         with:
@@ -76,9 +76,9 @@ jobs:
           mirror-token: ''
           package-manager-cache: false
 
-      - name: Assert expected GitHub result (v7 should fail)
+      - name: Assert expected GitHub result (v6 should fail)
         env:
-          ACTUAL: ${{ steps.github-v7.outcome }}
+          ACTUAL: ${{ steps.github-v6.outcome }}
         run: |
           set -euo pipefail
           echo "GitHub path: expected=failure actual=$ACTUAL"
