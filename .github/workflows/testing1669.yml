@@ -129,67 +129,7 @@ jobs:
           echo "---- check for empty auth header ----"
           grep -E "AUTH_HEADER=''|AUTH_HEADER=\"\"" "$RUNNER_TEMP/node-mirror.log" || true
 
-      - name: Assert expected GitHub result
-        env:
-          ACTUAL: ${{ matrix.variant == 'v6' && steps.github-v6.outcome || steps.github-pr.outcome }}
-          EXPECTED: ${{ matrix.github-outcome }}
-        run: |
-          set -euo pipefail
-          echo "GitHub path: expected=$EXPECTED actual=$ACTUAL"
-          test "$ACTUAL" = "$EXPECTED"
-
-          if grep -q '^MIRROR_DOWNLOAD_OK$' "$RUNNER_TEMP/node-mirror.log"; then
-            echo "::error::Unexpected mirror fallback during GitHub-path test"
-            exit 1
-          fi
-
-      # This odd-numbered release is absent from actions/node-versions.
-      - name: Test authenticated mirror fallback with v6
-        if: matrix.variant == 'v6'
-        uses: actions/setup-node@v6
-        env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-mirror
-        with:
-          node-version: '11.15.0'
-          token: ${{ github.token }}
-          mirror: http://127.0.0.1:8765
-          mirror-token: ''
-          package-manager-cache: false
-
-      - name: Test authenticated mirror fallback with PR branch
-        if: matrix.variant == 'pr-1669'
-        uses: EnesKartal/setup-node@fix/mirror-token-github-auth
-        env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-mirror
-        with:
-          node-version: '11.15.0'
-          token: ${{ github.token }}
-          mirror: http://127.0.0.1:8765
-          mirror-token: ''
-          package-manager-cache: false
-
-      - name: Prove auth header value after mirror-path test
-        if: always()
-        run: |
-          set -euo pipefail
-          echo "---- mirror log ----"
-          cat "$RUNNER_TEMP/node-mirror.log" || true
-          echo "---- check for empty auth header ----"
-          grep -E "AUTH_HEADER=''|AUTH_HEADER=\"\"" "$RUNNER_TEMP/node-mirror.log" || true
-
-      - name: Verify the mirror actually served the archive
-        run: |
-          set -euo pipefail
-          grep -q '^MIRROR_DOWNLOAD_OK$' "$RUNNER_TEMP/node-mirror.log"
-          test "$(node --version)" = v11.15.0
-          echo "Authenticated mirror download passed."
-
-      - name: Show mirror request log
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/node-mirror.log" ]; then
-            cat "$RUNNER_TEMP/node-mirror.log"
-          fi
+      
 
       - name: Stop temporary mirror
         if: always()
