@@ -116,7 +116,7 @@ jobs:
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-github
         with:
-          node-version: lts/jod
+          node-version: '11.15.0'
           check-latest: true
           token: ${{ github.token }}
           mirror: http://127.0.0.1:8765
@@ -131,7 +131,7 @@ jobs:
         env:
           RUNNER_TOOL_CACHE: ${{ runner.temp }}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-github
         with:
-          node-version: lts/jod
+          node-version: '11.15.0'
           check-latest: true
           token: ${{ github.token }}
           mirror: http://127.0.0.1:8765
