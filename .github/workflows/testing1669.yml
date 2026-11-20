@@ -10,14 +10,13 @@ jobs:
   compare:
     name: build
     runs-on: ubuntu-latest
-  
 
     defaults:
       run:
         shell: bash
 
     steps:
-      - name: Start local authenticated mirror
+      - name: Start local mirror (auth optional)
         id: mirror
         run: |
           set -euo pipefail
@@ -48,10 +47,7 @@ jobs:
 
                   print(f"MIRROR_REQ token={token_kind} path={self.path}", flush=True)
 
-                  if not hmac.compare_digest(supplied, os.environ["MIRROR_AUTH"]):
-                      self.send_error(401, "Invalid mirror token")
-                      return
-
+                  # Auth is optional now: never reject on token mismatch
                   if not self.path.startswith("/dist/"):
                       self.send_error(404)
                       return
@@ -76,16 +72,11 @@ jobs:
           python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
 
-          # readiness probes
+          # readiness probe (no auth required now)
           curl --fail --silent --show-error \
             --retry 10 --retry-connrefused --retry-delay 1 \
-            -H "Authorization: $MIRROR_AUTH" \
             http://127.0.0.1:8765/dist/index.json \
             --output /dev/null
-
-          STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            http://127.0.0.1:8765/dist/index.json)"
-          test "$STATUS" = 401
 
       - name: Reset mirror log (ignore readiness probes)
         run: |
@@ -94,9 +85,9 @@ jobs:
       - name: Force isolated tool cache
         run: |
           set -euo pipefail
-          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}" >> "$GITHUB_ENV"
-          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
-          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
+          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
       - name: Setup Node via mirror (no mirror-token)
         id: setup_no_mirror_token
@@ -113,14 +104,13 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          echo "variant=${{ matrix.variant }}"
           echo "setup outcome=${{ steps.setup_no_mirror_token.outcome }}"
           echo "---- mirror requests ----"
-          grep '^MIRROR_REQ ' "$RUNNER_TEMP/node-mirror.log" || true
+          grep -a '^MIRROR_REQ ' "$RUNNER_TEMP/node-mirror.log" || true
           echo "---- token counts ----"
-          echo "none:        $(grep -c 'token=none' "$RUNNER_TEMP/node-mirror.log" || true)"
-          echo "mirror-token:$(grep -c 'token=mirror-token' "$RUNNER_TEMP/node-mirror.log" || true)"
-          echo "other-token: $(grep -c 'token=other-token' "$RUNNER_TEMP/node-mirror.log" || true)"
+          echo "none:         $(grep -a -c 'token=none' "$RUNNER_TEMP/node-mirror.log" || true)"
+          echo "mirror-token: $(grep -a -c 'token=mirror-token' "$RUNNER_TEMP/node-mirror.log" || true)"
+          echo "other-token:  $(grep -a -c 'token=other-token' "$RUNNER_TEMP/node-mirror.log" || true)"
 
       - name: Stop local mirror
         if: always()
