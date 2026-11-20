@@ -8,16 +8,9 @@ permissions:
 
 jobs:
   compare:
-    name: ${{ matrix.variant }}
+    name: build
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - variant: v6
-            setup-ref: actions/setup-node@v6
-          - variant: pr
-            setup-ref: EnesKartal/setup-node@fix/mirror-token-github-auth
+  
 
     defaults:
       run:
@@ -93,7 +86,7 @@ jobs:
       - name: Trigger manifest path with empty mirror-token
         id: setup_empty
         continue-on-error: true
-        uses: ${{ matrix.setup-ref }}
+        uses: actions/setup-node@v6
         with:
           node-version: lts/jod
           check-latest: true
