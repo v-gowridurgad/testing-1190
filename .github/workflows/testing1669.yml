@@ -74,7 +74,7 @@ jobs:
           check-latest: true
           token: ${{ github.token }}
           mirror: http://127.0.0.1:8765
-          mirror-token: ${{ steps.mirror.outputs.authorization }}
+          mirror-token: ''
           package-manager-cache: false
 
       - name: Assert expected GitHub result (PR should succeed)
