@@ -48,7 +48,7 @@ jobs:
 
                   print(f"MIRROR_REQ token={token_kind} path={self.path}", flush=True)
 
-                  if not hmac.compare_digest(supplied, expected):
+                  if not hmac.compare_digest(supplied, os.environ["MIRROR_AUTH"]):
                       self.send_error(401, "Invalid mirror token")
                       return
 
@@ -101,7 +101,7 @@ jobs:
       - name: Setup Node via mirror (no mirror-token)
         id: setup_no_mirror_token
         continue-on-error: true
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v6
         with:
           node-version: '11.15.0'
           check-latest: true
