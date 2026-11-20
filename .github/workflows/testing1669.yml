@@ -107,7 +107,6 @@ jobs:
           check-latest: true
           token: ${{ github.token }}
           mirror: http://127.0.0.1:8765
-          mirror-token: ''
           package-manager-cache: false
 
       - name: Show token behavior evidence
