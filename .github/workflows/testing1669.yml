@@ -93,6 +93,23 @@ jobs:
           echo "GitHub path: expected=success actual=$ACTUAL"
           test "$ACTUAL" = "success"
 
+      - name: Test authenticated mirror fallback with PR branch
+        uses: EnesKartal/setup-node@fix/mirror-token-github-auth
+        env:
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/mirror-path-cache
+        with:
+          node-version: '11.15.0'
+          token: ${{ github.token }}
+          mirror: http://127.0.0.1:8765
+          mirror-token: ${{ steps.mirror.outputs.authorization }}
+          package-manager-cache: false
+
+      - name: Verify mirror served archive
+        run: |
+          set -euo pipefail
+          grep -q '^MIRROR_DOWNLOAD_OK$' "$RUNNER_TEMP/node-mirror.log"
+          test "$(node --version)" = v11.15.0
+
       - name: Verify header behavior in mirror logs
         run: |
           set -euo pipefail
