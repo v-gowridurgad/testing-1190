@@ -1,4 +1,4 @@
-name: mirror-auth-behavior
+name: reproduce-empty-mirror-token-manifest-auth
 
 on:
   workflow_dispatch:
@@ -7,16 +7,23 @@ permissions:
   contents: read
 
 jobs:
-  compare:
-    name: build
+  repro:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: v6
+            setup-ref: actions/setup-node@v6
+          - variant: pr
+            setup-ref: EnesKartal/setup-node@fix/mirror-token-github-auth
 
     defaults:
       run:
         shell: bash
 
     steps:
-      - name: Start local mirror (auth optional)
+      - name: Start strict local mirror (requires mirror token)
         id: mirror
         run: |
           set -euo pipefail
@@ -26,11 +33,7 @@ jobs:
           export MIRROR_AUTH="Bearer $TOKEN"
 
           cat > "$RUNNER_TEMP/node-mirror.py" <<'PY'
-          import hmac
-          import os
-          import shutil
-          import urllib.error
-          import urllib.request
+          import hmac, os, shutil, urllib.error, urllib.request
           from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
           class Mirror(BaseHTTPRequestHandler):
@@ -47,15 +50,18 @@ jobs:
 
                   print(f"MIRROR_REQ token={token_kind} path={self.path}", flush=True)
 
-                  # Auth is optional now: never reject on token mismatch
+                  if not hmac.compare_digest(supplied, expected):
+                      self.send_error(401, "Invalid mirror token")
+                      return
+
                   if not self.path.startswith("/dist/"):
                       self.send_error(404)
                       return
 
                   try:
                       upstream = urllib.request.urlopen("https://nodejs.org" + self.path, timeout=120)
-                  except urllib.error.HTTPError as error:
-                      self.send_error(error.code, "Upstream HTTP error")
+                  except urllib.error.HTTPError as e:
+                      self.send_error(e.code, "Upstream HTTP error")
                       return
                   except urllib.error.URLError:
                       self.send_error(502, "Cannot reach upstream")
@@ -72,47 +78,36 @@ jobs:
           python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
 
-          # readiness probe (no auth required now)
-          curl --fail --silent --show-error \
-            --retry 10 --retry-connrefused --retry-delay 1 \
-            http://127.0.0.1:8765/dist/index.json \
-            --output /dev/null
-
-      - name: Reset mirror log (ignore readiness probes)
-        run: |
-          : > "$RUNNER_TEMP/node-mirror.log"
-
-      - name: Force isolated tool cache
+      - name: Isolate cache
         run: |
           set -euo pipefail
-          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
-          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}" >> "$GITHUB_ENV"
+          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
+          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
+          : > "$RUNNER_TEMP/node-mirror.log"
 
-      - name: Setup Node via mirror (no mirror-token)
-        id: setup_no_mirror_token
+      - name: Trigger manifest path with empty mirror-token
+        id: setup
         continue-on-error: true
-        uses: EnesKartal/setup-node@fix/mirror-token-github-auth
+        uses: ${{ matrix.setup-ref }}
         with:
-          node-version: '11.15.0'
+          node-version: lts/jod
           check-latest: true
           token: ${{ github.token }}
           mirror: http://127.0.0.1:8765
+          mirror-token: ''
           package-manager-cache: false
 
-      - name: Show token behavior evidence
+      - name: Evidence
         if: always()
         run: |
           set -euo pipefail
-          echo "setup outcome=${{ steps.setup_no_mirror_token.outcome }}"
+          echo "variant=${{ matrix.variant }}"
+          echo "outcome=${{ steps.setup.outcome }}"
           echo "---- mirror requests ----"
           grep -a '^MIRROR_REQ ' "$RUNNER_TEMP/node-mirror.log" || true
-          echo "---- token counts ----"
-          echo "none:         $(grep -a -c 'token=none' "$RUNNER_TEMP/node-mirror.log" || true)"
-          echo "mirror-token: $(grep -a -c 'token=mirror-token' "$RUNNER_TEMP/node-mirror.log" || true)"
-          echo "other-token:  $(grep -a -c 'token=other-token' "$RUNNER_TEMP/node-mirror.log" || true)"
 
-      - name: Stop local mirror
+      - name: Stop mirror
         if: always()
         run: |
           if [ -f "$RUNNER_TEMP/node-mirror.pid" ]; then
