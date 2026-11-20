@@ -3,33 +3,129 @@ name: mirror-auth-behavior
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  mirror-no-mirror-token:
+  compare:
+    name: build
     runs-on: ubuntu-latest
+  
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - uses: actions/checkout@v7
+      - name: Start local authenticated mirror
+        id: mirror
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$TOKEN"
+          echo "authorization=Bearer $TOKEN" >> "$GITHUB_OUTPUT"
+          export MIRROR_AUTH="Bearer $TOKEN"
 
-      - name: Setup node (mirror + token, no mirror-token)
-        id: setup
+          cat > "$RUNNER_TEMP/node-mirror.py" <<'PY'
+          import hmac
+          import os
+          import shutil
+          import urllib.error
+          import urllib.request
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+          class Mirror(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  supplied = self.headers.get("Authorization", "")
+                  expected = os.environ["MIRROR_AUTH"]
+
+                  if supplied == "":
+                      token_kind = "none"
+                  elif hmac.compare_digest(supplied, expected):
+                      token_kind = "mirror-token"
+                  else:
+                      token_kind = "other-token"
+
+                  print(f"MIRROR_REQ token={token_kind} path={self.path}", flush=True)
+
+                  if not hmac.compare_digest(supplied, expected):
+                      self.send_error(401, "Invalid mirror token")
+                      return
+
+                  if not self.path.startswith("/dist/"):
+                      self.send_error(404)
+                      return
+
+                  try:
+                      upstream = urllib.request.urlopen("https://nodejs.org" + self.path, timeout=120)
+                  except urllib.error.HTTPError as error:
+                      self.send_error(error.code, "Upstream HTTP error")
+                      return
+                  except urllib.error.URLError:
+                      self.send_error(502, "Cannot reach upstream")
+                      return
+
+                  with upstream:
+                      self.send_response(200)
+                      self.end_headers()
+                      shutil.copyfileobj(upstream, self.wfile)
+
+          ThreadingHTTPServer(("127.0.0.1", 8765), Mirror).serve_forever()
+          PY
+
+          python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
+
+          # readiness probes
+          curl --fail --silent --show-error \
+            --retry 10 --retry-connrefused --retry-delay 1 \
+            -H "Authorization: $MIRROR_AUTH" \
+            http://127.0.0.1:8765/dist/index.json \
+            --output /dev/null
+
+          STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:8765/dist/index.json)"
+          test "$STATUS" = 401
+
+      - name: Reset mirror log (ignore readiness probes)
+        run: |
+          : > "$RUNNER_TEMP/node-mirror.log"
+
+      - name: Force isolated tool cache
+        run: |
+          set -euo pipefail
+          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}" >> "$GITHUB_ENV"
+          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
+          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.variant }}"
+
+      - name: Setup Node via mirror (no mirror-token)
+        id: setup_no_mirror_token
+        continue-on-error: true
         uses: actions/setup-node@v6
         with:
           node-version: '11.15.0'
           check-latest: true
-          mirror: 'https://mirror.yandex.ru/mirrors/nodejs.org/'
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
+          mirror: http://127.0.0.1:8765
+          mirror-token: ''
           package-manager-cache: false
 
-      - name: Check whether header was passed
+      - name: Show token behavior evidence
         if: always()
-        shell: bash
         run: |
           set -euo pipefail
-          echo "setup outcome: ${{ steps.setup.outcome }}"
+          echo "variant=${{ matrix.variant }}"
+          echo "setup outcome=${{ steps.setup_no_mirror_token.outcome }}"
           echo "---- mirror requests ----"
           grep '^MIRROR_REQ ' "$RUNNER_TEMP/node-mirror.log" || true
-          echo "---- token summary ----"
-          grep -E 'token=(none|other-token|mirror-token)' "$RUNNER_TEMP/node-mirror.log" || true
+          echo "---- token counts ----"
+          echo "none:        $(grep -c 'token=none' "$RUNNER_TEMP/node-mirror.log" || true)"
+          echo "mirror-token:$(grep -c 'token=mirror-token' "$RUNNER_TEMP/node-mirror.log" || true)"
+          echo "other-token: $(grep -c 'token=other-token' "$RUNNER_TEMP/node-mirror.log" || true)"
 
-      - name: Check Node version
-        run: node -v
+      - name: Stop local mirror
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/node-mirror.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/node-mirror.pid")"
+          fi
