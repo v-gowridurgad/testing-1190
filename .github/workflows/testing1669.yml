@@ -28,7 +28,6 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "${RUNNER_TEMP}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-github"
-          rm -rf "${RUNNER_TEMP}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-mirror"
 
       - name: Start temporary authenticated mirror
         id: mirror
@@ -38,6 +37,7 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "authorization=Bearer $TOKEN" >> "$GITHUB_OUTPUT"
           export MIRROR_AUTH="Bearer $TOKEN"
+
           cat > "$RUNNER_TEMP/node-mirror.py" <<'PY'
           import hmac
           import os
@@ -49,13 +49,25 @@ jobs:
           class Mirror(BaseHTTPRequestHandler):
               def do_GET(self):
                   supplied = self.headers.get("Authorization", "")
-                  print(f"AUTH_HEADER={supplied!r} PATH={self.path}", flush=True)
-                  if not hmac.compare_digest(supplied, os.environ["MIRROR_AUTH"]):
+                  expected = os.environ["MIRROR_AUTH"]
+
+                  if supplied == "":
+                      token_kind = "none"
+                  elif hmac.compare_digest(supplied, expected):
+                      token_kind = "mirror-token"
+                  else:
+                      token_kind = "other-token"
+
+                  print(f"MIRROR_REQ token={token_kind} path={self.path}", flush=True)
+
+                  if not hmac.compare_digest(supplied, expected):
                       self.send_error(401, "Invalid mirror token")
                       return
+
                   if not self.path.startswith("/dist/"):
                       self.send_error(404)
                       return
+
                   try:
                       upstream = urllib.request.urlopen(
                           "https://nodejs.org" + self.path, timeout=120
@@ -66,12 +78,11 @@ jobs:
                   except urllib.error.URLError:
                       self.send_error(502, "Cannot reach upstream")
                       return
+
                   with upstream:
                       self.send_response(200)
                       self.end_headers()
                       shutil.copyfileobj(upstream, self.wfile)
-                  if self.path.endswith(".tar.gz"):
-                      print("MIRROR_DOWNLOAD_OK", flush=True)
 
           ThreadingHTTPServer(("127.0.0.1", 8765), Mirror).serve_forever()
           PY
@@ -79,6 +90,7 @@ jobs:
           python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
 
+          # readiness probes (these are not setup-node behavior)
           curl --fail --silent --show-error \
             --retry 10 --retry-connrefused --retry-delay 1 \
             -H "Authorization: $MIRROR_AUTH" \
@@ -88,6 +100,10 @@ jobs:
           STATUS="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:8765/dist/index.json)"
           test "$STATUS" = 401
+
+      - name: Reset mirror log before setup-node test
+        run: |
+          : > "$RUNNER_TEMP/node-mirror.log"
 
       # LTS alias resolution needs a GitHub manifest before any mirror fallback.
       - name: Test GitHub authentication with v6
@@ -120,16 +136,24 @@ jobs:
           mirror-token: ''
           package-manager-cache: false
 
-      - name: Prove auth header value after GitHub-path test
+      - name: Prove token type after GitHub-path test
         if: always()
         run: |
           set -euo pipefail
-          echo "---- mirror log ----"
-          cat "$RUNNER_TEMP/node-mirror.log" || true
-          echo "---- check for empty auth header ----"
-          grep -E "AUTH_HEADER=''|AUTH_HEADER=\"\"" "$RUNNER_TEMP/node-mirror.log" || true
+          echo "---- setup-node mirror requests ----"
+          grep '^MIRROR_REQ ' "$RUNNER_TEMP/node-mirror.log" || true
+          echo "---- outcomes ----"
+          echo "v6 outcome: ${{ steps.github-v6.outcome }}"
+          echo "pr outcome: ${{ steps.github-pr.outcome }}"
 
-      
+      - name: Assert expected GitHub result
+        env:
+          ACTUAL: ${{ matrix.variant == 'v6' && steps.github-v6.outcome || steps.github-pr.outcome }}
+          EXPECTED: ${{ matrix.github-outcome }}
+        run: |
+          set -euo pipefail
+          echo "GitHub path: expected=$EXPECTED actual=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
 
       - name: Stop temporary mirror
         if: always()
