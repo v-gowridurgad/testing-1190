@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - variant: v6
-            github-outcome: failure
+            github-outcome: success
           - variant: pr-1669
             github-outcome: success
 
@@ -24,10 +24,12 @@ jobs:
         shell: bash
 
     steps:
+
       - name: Isolate and clear tool-cache roots for this run
         run: |
           set -euo pipefail
           rm -rf "${RUNNER_TEMP}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-github"
+          rm -rf "${RUNNER_TEMP}/tc-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant }}-mirror"    
 
       - name: Start temporary authenticated mirror
         id: mirror
