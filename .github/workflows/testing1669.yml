@@ -1,4 +1,4 @@
-name: mirror-auth-behavior-single
+name: Verify empty mirror-token regression
 
 on:
   workflow_dispatch:
@@ -7,109 +7,112 @@ permissions:
   contents: read
 
 jobs:
-  repro:
+  compare:
+    name: ${{ matrix.variant }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: v6.5.0
+            ref: v6.5.0
+            expected: empty
+          - variant: pr-1669
+            ref: 5a78ece28e5794ec899d41fd9f42dbf6dab68fcb
+            expected: github
 
     steps:
-      - name: Start local mirror (auth optional, logs token kind)
-        id: mirror
+      - name: Check out action being tested
+        uses: actions/checkout@v7
+        with:
+          repository: actions/setup-node
+          ref: ${{ matrix.ref }}
+          path: action-under-test
+          persist-credentials: false
+
+      - name: Instrument token selection without logging credentials
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
         run: |
-          set -euo pipefail
-          TOKEN="$(openssl rand -hex 32)"
-          echo "::add-mask::$TOKEN"
-          echo "authorization=Bearer $TOKEN" >> "$GITHUB_OUTPUT"
-          export MIRROR_AUTH="Bearer $TOKEN"
-
-          cat > "$RUNNER_TEMP/node-mirror.py" <<'PY'
-          import hmac
+          python3 <<'PY'
           import os
-          import shutil
-          import urllib.error
-          import urllib.request
-          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from pathlib import Path
 
-          class Mirror(BaseHTTPRequestHandler):
-              def do_GET(self):
-                  supplied = self.headers.get("Authorization", "")
-                  expected = os.environ["MIRROR_AUTH"]
+          path = Path('action-under-test/dist/setup/index.js')
+          content = path.read_text()
 
-                  if supplied == "":
-                      token_kind = "none"
-                  elif hmac.compare_digest(supplied, expected):
-                      token_kind = "mirror-token"
-                  else:
-                      token_kind = "other-token"
+          if os.environ['VARIANT'] == 'v6.5.0':
+              auth = (
+                  'this.nodeInfo.mirror ? '
+                  'this.nodeInfo.mirrorToken : this.nodeInfo.auth'
+              )
+              download = 'tc.downloadTool'
+              manifest = 'tc.getManifestFromRepo'
+          else:
+              auth = 'this.nodeInfo.auth'
+              download = 'downloadTool'
+              manifest = 'getManifestFromRepo'
 
-                  print(f"MIRROR_REQ token={token_kind} path={self.path}", flush=True)
+          def trace(label):
+              # Record only the selected category, never the token value.
+              return (
+                  "(process.getBuiltinModule('fs').appendFileSync("
+                  "process.env.AUTH_TRACE, "
+                  f"'{label}=' + "
+                  f"(!({auth}) ? 'empty' : "
+                  f"(({auth}) === this.nodeInfo.auth ? 'github' : 'other')) "
+                  "+ '\\n'), "
+                  f"({auth}))"
+              )
 
-                  # auth optional
-                  if not self.path.startswith("/dist/"):
-                      self.send_error(404)
-                      return
+          replacements = {
+              f'{download}(versionInfo.downloadUrl, undefined, {auth})':
+                  f'{download}(versionInfo.downloadUrl, undefined, {trace("download")})',
+              f"{manifest}('actions', 'node-versions', {auth}, 'main')":
+                  f"{manifest}('actions', 'node-versions', {trace('manifest')}, 'main')",
+          }
 
-                  try:
-                      upstream = urllib.request.urlopen("https://nodejs.org" + self.path, timeout=120)
-                  except urllib.error.HTTPError as error:
-                      self.send_error(error.code, "Upstream HTTP error")
-                      return
-                  except urllib.error.URLError:
-                      self.send_error(502, "Cannot reach upstream")
-                      return
+          for original, replacement in replacements.items():
+              if content.count(original) != 1:
+                  raise SystemExit(
+                      f'Expected exactly one matching call: {original}'
+                  )
+              content = content.replace(original, replacement, 1)
 
-                  with upstream:
-                      self.send_response(200)
-                      self.end_headers()
-                      shutil.copyfileobj(upstream, self.wfile)
-
-          ThreadingHTTPServer(("127.0.0.1", 8765), Mirror).serve_forever()
+          path.write_text(content)
           PY
 
-          python3 -u "$RUNNER_TEMP/node-mirror.py" > "$RUNNER_TEMP/node-mirror.log" 2>&1 &
-          echo "$!" > "$RUNNER_TEMP/node-mirror.pid"
+      - name: Prepare isolated tool cache
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/node-test-cache"
 
-          curl --fail --silent --show-error \
-            --retry 10 --retry-connrefused --retry-delay 1 \
-            http://127.0.0.1:8765/dist/index.json \
-            --output /dev/null
-
-      - name: Isolate tool cache and clear mirror log
-        run: |
-          set -euo pipefail
-          echo "RUNNER_TOOL_CACHE=${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
-          rm -rf "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "${RUNNER_TEMP}/tc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          : > "$RUNNER_TEMP/node-mirror.log"
-
-      - name: Setup Node via mirror (no mirror-token)
-        id: setup
-        continue-on-error: true
-        uses: actions/setup-node@v6
+      - name: Run setup-node with mirror but no mirror-token
+        uses: ./action-under-test
+        env:
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/node-test-cache
+          AUTH_TRACE: ${{ runner.temp }}/auth-trace.txt
         with:
-          node-version: '11.15.0'
+          # Known to exist in the GitHub node-versions manifest.
+          node-version: '22.20.0'
           check-latest: true
           token: ${{ github.token }}
-          mirror: http://127.0.0.1:8765
+          mirror: https://nodejs.org
           mirror-token: ''
           package-manager-cache: false
 
-      - name: Show mirror auth evidence
-        if: always()
+      - name: Check token selection
+        shell: bash
+        env:
+          EXPECTED: ${{ matrix.expected }}
         run: |
           set -euo pipefail
-          echo "setup outcome=${{ steps.setup.outcome }}"
-          echo "---- mirror requests ----"
-          grep -a '^MIRROR_REQ ' "$RUNNER_TEMP/node-mirror.log" || true
-          echo "---- token counts ----"
-          echo "none:         $(grep -a -c 'token=none' "$RUNNER_TEMP/node-mirror.log" || true)"
-          echo "mirror-token: $(grep -a -c 'token=mirror-token' "$RUNNER_TEMP/node-mirror.log" || true)"
-          echo "other-token:  $(grep -a -c 'token=other-token' "$RUNNER_TEMP/node-mirror.log" || true)"
 
-      - name: Stop local mirror
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/node-mirror.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/node-mirror.pid")"
-          fi
+          echo "Observed token categories:"
+          cat "$RUNNER_TEMP/auth-trace.txt"
+
+          grep -qx "manifest=$EXPECTED" "$RUNNER_TEMP/auth-trace.txt"
+          grep -qx "download=$EXPECTED" "$RUNNER_TEMP/auth-trace.txt"
+
+          test "$(node --version)" = "v22.20.0"
