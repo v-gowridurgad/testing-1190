@@ -17,7 +17,7 @@ jobs:
       - name: Case A - explicit prerelease upper bound
         id: case_a
         continue-on-error: true
-        uses: actions/setup-node@v7
+        uses: v-priyagupta108/setup-node@allow-alpha
         with:
           node-version: ">=27.0.0 <28.0.0-0"
           allow-alpha: true
@@ -40,7 +40,7 @@ jobs:
       - name: Case B - implicit stable range (control)
         id: case_b
         continue-on-error: true
-        uses: actions/setup-node@v7
+        uses: v-priyagupta108/setup-node@allow-alpha
         with:
           node-version: "27"
           allow-alpha: true
