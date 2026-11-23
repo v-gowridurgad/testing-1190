@@ -1,4 +1,4 @@
-name: Verify empty mirror-token regression
+name: Compare empty mirror-token behavior
 
 on:
   workflow_dispatch:
@@ -16,103 +16,117 @@ jobs:
       matrix:
         include:
           - variant: v6.5.0
-            ref: v6.5.0
             expected: empty
           - variant: pr-1669
-            ref: 5a78ece28e5794ec899d41fd9f42dbf6dab68fcb
             expected: github
 
     steps:
-      - name: Check out action being tested
-        uses: actions/checkout@v7
-        with:
-          repository: actions/setup-node
-          ref: ${{ matrix.ref }}
-          path: action-under-test
-          persist-credentials: false
-
-      - name: Instrument token selection without logging credentials
+      - name: Prepare request tracer and isolated cache
         shell: bash
-        env:
-          VARIANT: ${{ matrix.variant }}
         run: |
-          python3 <<'PY'
-          import os
-          from pathlib import Path
+          mkdir -p "$RUNNER_TEMP/node-test-cache"
 
-          path = Path('action-under-test/dist/setup/index.js')
-          content = path.read_text()
+          cat > "$RUNNER_TEMP/trace-auth.cjs" <<'JS'
+          const https = require('node:https');
+          const fs = require('node:fs');
+          const {syncBuiltinESMExports} = require('node:module');
 
-          if os.environ['VARIANT'] == 'v6.5.0':
-              auth = (
-                  'this.nodeInfo.mirror ? '
-                  'this.nodeInfo.mirrorToken : this.nodeInfo.auth'
-              )
-              download = 'tc.downloadTool'
-              manifest = 'tc.getManifestFromRepo'
-          else:
-              auth = 'this.nodeInfo.auth'
-              download = 'downloadTool'
-              manifest = 'getManifestFromRepo'
+          const originalRequest = https.request;
 
-          def trace(label):
-              # Record only the selected category, never the token value.
-              return (
-                  "(process.getBuiltinModule('fs').appendFileSync("
-                  "process.env.AUTH_TRACE, "
-                  f"'{label}=' + "
-                  f"(!({auth}) ? 'empty' : "
-                  f"(({auth}) === this.nodeInfo.auth ? 'github' : 'other')) "
-                  "+ '\\n'), "
-                  f"({auth}))"
-              )
+          https.request = function (...args) {
+            const options = args[0];
 
-          replacements = {
-              f'{download}(versionInfo.downloadUrl, undefined, {auth})':
-                  f'{download}(versionInfo.downloadUrl, undefined, {trace("download")})',
-              f"{manifest}('actions', 'node-versions', {auth}, 'main')":
-                  f"{manifest}('actions', 'node-versions', {trace('manifest')}, 'main')",
-          }
+            if (options && typeof options === 'object') {
+              const host = options.hostname || options.host;
+              const path = options.path || '';
 
-          for original, replacement in replacements.items():
-              if content.count(original) != 1:
-                  raise SystemExit(
-                      f'Expected exactly one matching call: {original}'
-                  )
-              content = content.replace(original, replacement, 1)
+              let kind;
+              if (
+                host === 'api.github.com' &&
+                path.startsWith('/repos/actions/node-versions/git/trees/')
+              ) {
+                kind = 'manifest';
+              } else if (
+                host === 'github.com' &&
+                path.startsWith('/actions/node-versions/releases/download/')
+              ) {
+                kind = 'download';
+              }
 
-          path.write_text(content)
-          PY
+              if (kind) {
+                const headers = options.headers || {};
+                const authEntry = Object.entries(headers).find(
+                  ([name]) => name.toLowerCase() === 'authorization'
+                );
+                const auth = authEntry?.[1];
+                const category = !auth
+                  ? 'empty'
+                  : auth === `token ${process.env.EXPECTED_GITHUB_TOKEN}`
+                    ? 'github'
+                    : 'other';
 
-      - name: Prepare isolated tool cache
-        shell: bash
-        run: mkdir -p "$RUNNER_TEMP/node-test-cache"
+                // Record only the category, never the token.
+                fs.appendFileSync(
+                  process.env.AUTH_TRACE,
+                  `${kind}=${category}\n`
+                );
+              }
+            }
 
-      - name: Run setup-node with mirror but no mirror-token
-        uses: ./action-under-test
+            return originalRequest.apply(this, args);
+          };
+
+          syncBuiltinESMExports();
+          JS
+
+      - name: Test v6.5.0
+        if: matrix.variant == 'v6.5.0'
+        uses: actions/setup-node@v6.5.0
         env:
-          RUNNER_TOOL_CACHE: ${{ runner.temp }}/node-test-cache
+          NODE_OPTIONS: --require ${{ runner.temp }}/trace-auth.cjs
           AUTH_TRACE: ${{ runner.temp }}/auth-trace.txt
+          EXPECTED_GITHUB_TOKEN: ${{ github.token }}
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/node-test-cache
         with:
-          # Known to exist in the GitHub node-versions manifest.
           node-version: '22.20.0'
           check-latest: true
           token: ${{ github.token }}
-          mirror: https://mirror.yandex.ru/mirrors/nodejs.org/
+          mirror: https://nodejs.org
+          mirror-token: ''
+
+      - name: Test PR branch
+        if: matrix.variant == 'pr-1669'
+        uses: EnesKartal/setup-node@fix/mirror-token-github-auth
+        env:
+          NODE_OPTIONS: --require ${{ runner.temp }}/trace-auth.cjs
+          AUTH_TRACE: ${{ runner.temp }}/auth-trace.txt
+          EXPECTED_GITHUB_TOKEN: ${{ github.token }}
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/node-test-cache
+        with:
+          node-version: '22.20.0'
+          check-latest: true
+          token: ${{ github.token }}
+          mirror: https://nodejs.org
           mirror-token: ''
           package-manager-cache: false
 
-      - name: Check token selection
+      - name: Verify request authentication
         shell: bash
         env:
           EXPECTED: ${{ matrix.expected }}
         run: |
           set -euo pipefail
 
-          echo "Observed token categories:"
+          echo "Observed authorization categories:"
           cat "$RUNNER_TEMP/auth-trace.txt"
 
           grep -qx "manifest=$EXPECTED" "$RUNNER_TEMP/auth-trace.txt"
           grep -qx "download=$EXPECTED" "$RUNNER_TEMP/auth-trace.txt"
+
+          if grep -Ev "^(manifest|download)=$EXPECTED$" \
+              "$RUNNER_TEMP/auth-trace.txt"; then
+            echo "::error::Unexpected authorization category"
+            exit 1
+          fi
 
           test "$(node --version)" = "v22.20.0"
