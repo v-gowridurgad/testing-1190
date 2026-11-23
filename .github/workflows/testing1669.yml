@@ -98,7 +98,7 @@ jobs:
           node-version: '22.20.0'
           check-latest: true
           token: ${{ github.token }}
-          mirror: https://nodejs.org
+          mirror: https://mirror.yandex.ru/mirrors/nodejs.org/
           mirror-token: ''
           package-manager-cache: false
 
