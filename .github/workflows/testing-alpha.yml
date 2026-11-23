@@ -21,6 +21,6 @@ jobs:
       - uses: v-priyagupta108/setup-node@allow-alpha
         with:
           node-version: ${{ matrix.node-version }}
-          allow-alpha: true
+          allow-alpha: flase
 
       - run: node --version
