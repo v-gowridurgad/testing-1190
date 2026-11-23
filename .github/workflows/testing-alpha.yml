@@ -12,6 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [latest, current, node]
 
 
     steps:
@@ -19,7 +20,7 @@ jobs:
 
       - uses: v-priyagupta108/setup-node@allow-alpha
         with:
-          node-version-file: .nvmrc
+          node-version: ${{ matrix.node-version }}
           allow-alpha: true
 
       - run: node --version
