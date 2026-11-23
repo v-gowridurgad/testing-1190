@@ -12,13 +12,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ['27', '27.x', '27.0', '27.0.0', '27.0.x', '^27.0.0', '~27.0.0', '>=27', '>=27.0.0 <28.0.0']
 
     steps:
       - uses: actions/checkout@v7
 
       - uses: v-priyagupta108/setup-node@allow-alpha
         with:
-          node-version: '27'
+          node-version: ${{ matrix.node-version }}
           allow-alpha: true
 
       - run: node --version
