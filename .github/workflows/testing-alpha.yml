@@ -1,0 +1,87 @@
+name: repro-alpha-explicit-prerelease-bound
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Case A - explicit prerelease upper bound
+        id: case_a
+        continue-on-error: true
+        uses: actions/setup-node@v7
+        with:
+          node-version: ">=27.0.0 <28.0.0-0"
+          allow-alpha: true
+          check-latest: true
+          package-manager-cache: false
+          token: ${{ github.token }}
+
+      - name: Capture Case A result
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "CASE_A_OUTCOME=${{ steps.case_a.outcome }}" | tee -a "$GITHUB_ENV"
+          if [ "${{ steps.case_a.outcome }}" = "success" ]; then
+            echo "CASE_A_NODE=$(node -v)" | tee -a "$GITHUB_ENV"
+          else
+            echo "CASE_A_NODE=FAILED" | tee -a "$GITHUB_ENV"
+          fi
+          echo "Case A outcome: ${{ steps.case_a.outcome }}"
+
+      - name: Case B - implicit stable range (control)
+        id: case_b
+        continue-on-error: true
+        uses: actions/setup-node@v7
+        with:
+          node-version: "27"
+          allow-alpha: true
+          check-latest: true
+          package-manager-cache: false
+          token: ${{ github.token }}
+
+      - name: Capture Case B result
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "CASE_B_OUTCOME=${{ steps.case_b.outcome }}" | tee -a "$GITHUB_ENV"
+          if [ "${{ steps.case_b.outcome }}" = "success" ]; then
+            echo "CASE_B_NODE=$(node -v)" | tee -a "$GITHUB_ENV"
+          else
+            echo "CASE_B_NODE=FAILED" | tee -a "$GITHUB_ENV"
+          fi
+          echo "Case B outcome: ${{ steps.case_b.outcome }}"
+
+      - name: Evidence summary
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "===== Alpha edge-case evidence ====="
+          echo "Case A spec: >=27.0.0 <28.0.0-0 (explicit prerelease bound)"
+          echo "Case A outcome: ${CASE_A_OUTCOME}"
+          echo "Case A node: ${CASE_A_NODE}"
+          echo ""
+          echo "Case B spec: 27 (implicit range control)"
+          echo "Case B outcome: ${CASE_B_OUTCOME}"
+          echo "Case B node: ${CASE_B_NODE}"
+          echo "==================================="
+
+      - name: Soft assertion for bug signal
+        if: always()
+        run: |
+          set -euo pipefail
+          # Bug signal: Case A resolves to alpha (e.g., v27.0.0-alpha.*),
+          # even though explicit prerelease-bound range should follow standard semver behavior.
+          if [[ "${CASE_A_OUTCOME}" == "success" && "${CASE_A_NODE}" == *"-alpha."* ]]; then
+            echo "::warning::Potential bug reproduced: explicit prerelease-bound range selected alpha (${CASE_A_NODE})."
+          else
+            echo "No direct bug signal in this run."
+          fi
