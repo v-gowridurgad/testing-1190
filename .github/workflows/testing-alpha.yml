@@ -19,5 +19,6 @@ jobs:
       - uses: v-priyagupta108/setup-node@allow-alpha
         with:
           node-version: '27'
+          allow-alpha: true
 
       - run: node --version
